@@ -82,3 +82,39 @@ def write_json(path, obj):
 
 def sha12(text):
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
+
+
+def run_git(root, args):
+    """Return (returncode, stdout). Never raises."""
+    try:
+        p = subprocess.run(["git", "-C", root] + args,
+                           capture_output=True, text=True, timeout=10)
+        return p.returncode, p.stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+
+
+def is_git_repo(root):
+    rc, out = run_git(root, ["rev-parse", "--is-inside-work-tree"])
+    return rc == 0 and out.strip() == "true"
+
+
+def tree_dirty(root):
+    rc1, _ = run_git(root, ["diff", "--quiet", "--", ".", ":!.agent"])
+    rc2, _ = run_git(root, ["diff", "--cached", "--quiet", "--", ".", ":!.agent"])
+    return rc1 != 0 or rc2 != 0  # --quiet exits non-zero when differences exist
+
+
+def base_sha(root):
+    rc, out = run_git(root, ["rev-parse", "HEAD"])
+    return out.strip() if rc == 0 and out.strip() else "none"
+
+
+def cheap_worktree_fp(root):
+    parts = [
+        base_sha(root),
+        run_git(root, ["status", "--porcelain=v1", "--", ".", ":!.agent"])[1],
+        run_git(root, ["diff", "--numstat", "HEAD", "--", ".", ":!.agent"])[1],
+        run_git(root, ["diff", "--cached", "--numstat", "HEAD", "--", ".", ":!.agent"])[1],
+    ]
+    return sha12("\n".join(parts))
