@@ -96,5 +96,26 @@ class TestFinalize(unittest.TestCase):
         self.assertEqual(c.read_state(root)["iteration"], 1)
 
 
+class TestCLI(unittest.TestCase):
+    def test_cli_prepare_no_pending_exits_1(self):
+        root = tempfile.mkdtemp(); os.makedirs(c.rl_dir(root))
+        bin_path = os.path.join(os.path.dirname(__file__), "..", "bin", "review-loop")
+        p = subprocess.run(["bash", bin_path, "--root", root, "prepare"],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1)
+
+    def test_cli_prepare_then_finalize(self):
+        root = pending_repo()
+        bin_path = os.path.join(os.path.dirname(__file__), "..", "bin", "review-loop")
+        subprocess.run(["bash", bin_path, "--root", root, "prepare"], check=True,
+                       capture_output=True, text=True)
+        raw = os.path.join(root, "out.md")
+        with open(raw, "w") as f:
+            f.write("ok\n")
+        subprocess.run(["bash", bin_path, "--root", root, "finalize", raw,
+                        "--verdict", "pass"], check=True, capture_output=True, text=True)
+        self.assertTrue(c.read_state(root)["done"])
+
+
 if __name__ == "__main__":
     unittest.main()
