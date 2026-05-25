@@ -118,3 +118,39 @@ def cheap_worktree_fp(root):
         run_git(root, ["diff", "--cached", "--numstat", "HEAD", "--", ".", ":!.agent"])[1],
     ]
     return sha12("\n".join(parts))
+
+
+STATE_DEFAULTS = {
+    "iteration": 0,
+    "max_iterations": 5,
+    "last_verdict": None,
+    "last_consumed_feedback_hash": None,
+    "done": False,
+}
+
+
+def read_state(root):
+    state = dict(STATE_DEFAULTS)
+    state["max_iterations"] = get_int("RL_MAX_ITERATIONS", 5)
+    state.update(read_json(os.path.join(rl_dir(root), "state.json"), {}))
+    return state
+
+
+def write_state(root, state):
+    write_json(os.path.join(rl_dir(root), "state.json"), state)
+
+
+def parse_feedback_header(md):
+    """Return (header_dict, body) for a leading --- ... --- block."""
+    if not md.startswith("---"):
+        return {}, md
+    end = md.find("\n---", 3)
+    if end == -1:
+        return {}, md
+    header = {}
+    for line in md[3:end].strip().splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            header[k.strip()] = v.strip()
+    body = md[end + 4:].lstrip("\n")
+    return header, body
