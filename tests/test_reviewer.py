@@ -44,5 +44,57 @@ class TestPrepare(unittest.TestCase):
         self.assertIn("git diff", content)
 
 
+class TestFinalize(unittest.TestCase):
+    def _setup(self):
+        root = pending_repo()
+        reviewer.cmd_prepare(root)
+        raw = os.path.join(root, "codex_out.md")
+        with open(raw, "w") as f:
+            f.write("finding 1: do X\nfinding 2: do Y\n")
+        return root, raw
+
+    def test_finalize_writes_header_and_feedback(self):
+        root, raw = self._setup()
+        reviewer.cmd_finalize(root, raw, "needs_changes", True)
+        fb = os.path.join(c.rl_dir(root), "codex-feedback.md")
+        with open(fb) as f:
+            md = f.read()
+        header, body = c.parse_feedback_header(md)
+        self.assertEqual(header["verdict"], "needs_changes")
+        self.assertEqual(header["iteration"], "1")
+        self.assertEqual(header["reviewed_worktree_fp"], c.cheap_worktree_fp(root))
+        self.assertEqual(len(header["review_packet_hash"]), 12)
+        self.assertIn("finding 1", body)
+
+    def test_finalize_flips_pending_and_archives(self):
+        root, raw = self._setup()
+        reviewer.cmd_finalize(root, raw, "needs_changes", True)
+        pend = c.read_json(os.path.join(c.rl_dir(root), "pending.json"), {})
+        self.assertEqual(pend["status"], "reviewed")
+        self.assertTrue(os.path.exists(os.path.join(c.rl_dir(root), "iterations", "001-feedback.md")))
+
+    def test_convergence_pass(self):
+        root, raw = self._setup()
+        reviewer.cmd_finalize(root, raw, "pass", True)
+        self.assertTrue(c.read_state(root)["done"])
+
+    def test_convergence_no_new_findings(self):
+        root, raw = self._setup()
+        reviewer.cmd_finalize(root, raw, "needs_changes", False)
+        self.assertTrue(c.read_state(root)["done"])
+
+    def test_convergence_max_iterations(self):
+        root, raw = self._setup()
+        s = c.read_state(root); s["iteration"] = 4; s["max_iterations"] = 5; c.write_state(root, s)
+        reviewer.cmd_finalize(root, raw, "needs_changes", True)  # becomes iteration 5
+        self.assertTrue(c.read_state(root)["done"])
+
+    def test_not_done_midloop(self):
+        root, raw = self._setup()
+        reviewer.cmd_finalize(root, raw, "needs_changes", True)
+        self.assertFalse(c.read_state(root)["done"])
+        self.assertEqual(c.read_state(root)["iteration"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,42 @@ def cmd_prepare(root):
     return 0
 
 
+def cmd_finalize(root, raw_path, verdict, new_findings):
+    state = c.read_state(root)
+    n = state.get("iteration", 0) + 1
+    with open(raw_path) as f:
+        body = f.read().strip()
+    packet_content = ""
+    ppath = _packet_path(root, n)
+    if os.path.exists(ppath):
+        with open(ppath) as f:
+            packet_content = f.read()
+    header = ("---\n"
+              f"review_base_sha: {c.base_sha(root)}\n"
+              f"reviewed_worktree_fp: {c.cheap_worktree_fp(root)}\n"
+              f"review_packet_hash: {c.sha12(packet_content)}\n"
+              f"iteration: {n}\n"
+              f"verdict: {verdict}\n"
+              f"new_findings: {'true' if new_findings else 'false'}\n"
+              f"created_at: {c.now_iso()}\n"
+              "---\n\n")
+    feedback = header + body + "\n"
+    c.atomic_write(_feedback_archive(root, n), feedback)
+    c.atomic_write(os.path.join(c.rl_dir(root), "codex-feedback.md"), feedback)
+
+    done = (verdict == "pass") or (n >= state.get("max_iterations", 5)) or (not new_findings)
+    state.update({"iteration": n, "last_verdict": verdict, "done": done})
+    c.write_state(root, state)
+
+    pending_path = os.path.join(c.rl_dir(root), "pending.json")
+    pending = c.read_json(pending_path, {})
+    pending["status"] = "reviewed"
+    c.write_json(pending_path, pending)
+    c.log(root, f"finalize iter={n} verdict={verdict} done={done}")
+    print(f"review-loop: finalized iteration {n} (verdict={verdict}, done={done})")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="review-loop")
     p.add_argument("--root", default=None)
